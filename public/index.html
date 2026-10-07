@@ -1,33 +1,277 @@
-<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>CheapTrip Europe</title><style>body{font-family:Arial;max-width:900px;margin:auto;padding:24px;background:#f5f7fb}.card{background:#fff;padding:24px;border-radius:16px;margin-bottom:20px}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px}input,select,button{width:100%;box-sizing:border-box;padding:12px;margin:6px 0 12px}button{background:#172033;color:white;border:0;border-radius:8px}.flight{border:1px solid #ddd;padding:15px;border-radius:10px;margin:10px 0}.price{font-size:22px;font-weight:bold}</style></head><body><div class="card"><h1>✈️ CheapTrip Europe</h1><div class="grid"><div>From (IATA)<input id="o" placeholder="DUB" maxlength="3"></div><div>To (IATA)<input id="d" placeholder="CDG" maxlength="3"></div><div>Departure<input id="dep" type="date"></div><div>Return<input id="ret" type="date"></div><div>Travellers<input id="a" type="number" min="1" value="1"></div><div>Cabin<select id="c"><option value="economy">Economy</option><option value="premium_economy">Premium economy</option><option value="business">Business</option><option value="first">First</option></select></div></div><button onclick="go()">Search Flights</button><p id="s"></p></div><div class="card"><h2>Flight results</h2><div id="r">Enter a search and press Search Flights.</div></div><script>
-async function go(){
-  const statusEl=document.getElementById("s");
-  const resultsEl=document.getElementById("r");
-  const body={
-    origin:document.getElementById("o").value.trim(),
-    destination:document.getElementById("d").value.trim(),
-    departureDate:document.getElementById("dep").value,
-    returnDate:document.getElementById("ret").value||undefined,
-    adults:Number(document.getElementById("a").value)||1,
-    cabinClass:document.getElementById("c").value
-  };
-  statusEl.textContent="Searching Duffel...";
-  resultsEl.textContent="Please wait...";
-  try{
-    const response=await fetch("/api/flights/search",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
-    const text=await response.text();
-    let data; try{data=JSON.parse(text)}catch{throw new Error("The server returned an invalid response: "+text.slice(0,500));}
-    if(!response.ok){
-      const detail=data.details?.errors ? JSON.stringify(data.details.errors,null,2) : JSON.stringify(data.details||data,null,2);
-      throw new Error((data.error||"Flight search failed")+"\n"+detail);
-    }
-    if(!data.count){statusEl.textContent="Search completed — no offers.";resultsEl.textContent="No offers returned. Try another future date or route.";return;}
-    statusEl.textContent=`Found ${data.count} offer(s).`;
-    resultsEl.innerHTML="";
-    data.offers.slice(0,20).forEach(f=>{
-      const seg=(f.slices||[]).flatMap(z=>z.segments||[]);
-      const carriers=[...new Set(seg.map(x=>x.operating_carrier?.name||x.marketing_carrier?.name).filter(Boolean))];
-      resultsEl.innerHTML+=`<div class="flight"><div class="price">${f.total_currency||""} ${f.total_amount||""}</div><b>${carriers.join(", ")||"Airline"}</b><br>${seg.map(x=>`${x.origin?.iata_code||""} → ${x.destination?.iata_code||""}`).join(" • ")}</div>`;
-    });
-  }catch(e){
-    statusEl.textContent="Search error";
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CheapTrip Europe</title>
 
+<style>
+body{
+  font-family:Arial;
+  max-width:900px;
+  margin:auto;
+  padding:24px;
+  background:#f5f7fb
+}
+.card{
+  background:#fff;
+  padding:24px;
+  border-radius:16px;
+  margin-bottom:20px
+}
+.grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(180px,1fr));
+  gap:14px
+}
+input,select,button{
+  width:100%;
+  box-sizing:border-box;
+  padding:12px;
+  margin:6px 0 12px
+}
+button{
+  background:#172033;
+  color:white;
+  border:0;
+  border-radius:8px;
+  cursor:pointer
+}
+.flight{
+  border:1px solid #ddd;
+  padding:15px;
+  border-radius:10px;
+  margin:10px 0
+}
+.price{
+  font-size:22px;
+  font-weight:bold
+}
+.error{
+  background:#ffe5e5;
+  color:#900;
+  padding:15px;
+  border-radius:8px;
+  white-space:pre-wrap;
+}
+</style>
+</head>
+
+<body>
+
+<div class="card">
+<h1>✈️ CheapTrip Europe</h1>
+
+<div class="grid">
+
+<div>
+From (IATA)
+<input id="o" placeholder="DUB" maxlength="3">
+</div>
+
+<div>
+To (IATA)
+<input id="d" placeholder="CDG" maxlength="3">
+</div>
+
+<div>
+Departure
+<input id="dep" type="date">
+</div>
+
+<div>
+Return
+<input id="ret" type="date">
+</div>
+
+<div>
+Travellers
+<input id="a" type="number" min="1" value="1">
+</div>
+
+<div>
+Cabin
+<select id="c">
+<option value="economy">Economy</option>
+<option value="premium_economy">Premium economy</option>
+<option value="business">Business</option>
+<option value="first">First</option>
+</select>
+</div>
+
+</div>
+
+<button onclick="go()">Search Flights</button>
+
+<p id="s"></p>
+</div>
+
+<div class="card">
+<h2>Flight results</h2>
+<div id="r">Enter a search and press Search Flights.</div>
+</div>
+
+<script>
+
+async function go(){
+
+  const statusEl = document.getElementById("s");
+  const resultsEl = document.getElementById("r");
+
+  const body = {
+    origin: document.getElementById("o").value.trim().toUpperCase(),
+    destination: document.getElementById("d").value.trim().toUpperCase(),
+    departureDate: document.getElementById("dep").value,
+    returnDate: document.getElementById("ret").value || undefined,
+    adults: Number(document.getElementById("a").value) || 1,
+    cabinClass: document.getElementById("c").value
+  };
+
+  statusEl.textContent = "Searching Duffel...";
+  resultsEl.textContent = "Please wait...";
+
+  try {
+
+    const response = await fetch("/api/flights/search", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(body)
+    });
+
+    const text = await response.text();
+
+    console.log("CheapTrip server response:", text);
+
+    let data;
+
+    try {
+      data = JSON.parse(text);
+    } catch (parseError) {
+      throw new Error(
+        "The server returned invalid JSON:\n\n" +
+        text.substring(0,1000)
+      );
+    }
+
+    console.log("CheapTrip parsed data:", data);
+
+    if (!response.ok) {
+
+      const detail =
+        data.details
+        ? JSON.stringify(data.details, null, 2)
+        : JSON.stringify(data, null, 2);
+
+      throw new Error(
+        (data.error || "Flight search failed") +
+        "\n\n" +
+        detail
+      );
+    }
+
+    if (!Array.isArray(data.offers)) {
+
+      throw new Error(
+        "The server returned a response, but the 'offers' field is not an array."
+      );
+    }
+
+    if (data.offers.length === 0) {
+
+      statusEl.textContent = "Search completed — no offers.";
+
+      resultsEl.textContent =
+        "No flights were returned. Try another future date or route.";
+
+      return;
+    }
+
+    statusEl.textContent =
+      "Found " + data.offers.length + " flight offers.";
+
+    resultsEl.innerHTML = "";
+
+    data.offers.slice(0,20).forEach(function(f){
+
+      const slices = Array.isArray(f.slices) ? f.slices : [];
+
+      const segments = slices.flatMap(function(slice){
+        return Array.isArray(slice.segments)
+          ? slice.segments
+          : [];
+      });
+
+      const carriers = [
+        ...new Set(
+          segments
+            .map(function(segment){
+              return (
+                segment.operating_carrier &&
+                segment.operating_carrier.name
+              ) ||
+              (
+                segment.marketing_carrier &&
+                segment.marketing_carrier.name
+              );
+            })
+            .filter(Boolean)
+        )
+      ];
+
+      const route = segments.map(function(segment){
+
+        const from =
+          segment.origin &&
+          segment.origin.iata_code
+            ? segment.origin.iata_code
+            : "";
+
+        const to =
+          segment.destination &&
+          segment.destination.iata_code
+            ? segment.destination.iata_code
+            : "";
+
+        return from + " → " + to;
+
+      }).join(" • ");
+
+      const currency = f.total_currency || "";
+      const amount = f.total_amount || "";
+
+      resultsEl.innerHTML +=
+        '<div class="flight">' +
+
+        '<div class="price">' +
+        currency + " " + amount +
+        '</div>' +
+
+        '<b>' +
+        (carriers.join(", ") || "Airline") +
+        '</b><br>' +
+
+        route +
+
+        '</div>';
+    });
+
+  } catch(e) {
+
+    console.error("CheapTrip search error:", e);
+
+    statusEl.textContent = "Search error";
+
+    resultsEl.innerHTML =
+      '<div class="error">' +
+      '<b>Search error:</b><br><br>' +
+      String(e.message || e) +
+      '</div>';
+  }
+}
+
+</script>
+
+</body>
+</html>
